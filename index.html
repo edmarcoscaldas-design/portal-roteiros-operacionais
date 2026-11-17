@@ -45,6 +45,7 @@
       <div class="field"><label for="convenio">CONVÊNIO</label><select id="convenio"><option value="">Todos os convênios</option></select></div>
       <div class="field"><label for="publico">PÚBLICO</label><select id="publico"><option value="">Todos os públicos</option></select></div>
     </div>
+    <p class="desc" style="margin-top:12px">Os filtros usam as classificações cadastradas na planilha. Documentos sem classificação podem ser encontrados em “Não informado”.</p>
   </section>
   <div class="bar"><h3>Roteiros disponíveis</h3><div class="count" id="count">Carregando...</div></div>
   <section class="results" id="results"><div class="empty">Carregando os roteiros...</div></section>
@@ -58,8 +59,21 @@
   const norm = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim();
 
   function fillFilter(id, key, label) {
-    const select = $(id), values = [...new Set(records.map(r => r[key]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"pt-BR"));
-    select.innerHTML = `<option value="">${label}</option>` + values.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+    const select = $(id);
+    const current = select.value;
+    const values = [...new Set(records.map(r => String(r[key] || "").trim()).filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b,"pt-BR"));
+    const hasBlank = records.some(r => !String(r[key] || "").trim());
+    select.innerHTML = `<option value="">${label}</option>` +
+      values.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("") +
+      (hasBlank ? '<option value="__vazio__">Não informado</option>' : "");
+    if ([...select.options].some(o => o.value === current)) select.value = current;
+  }
+
+  function matchesFilter(value, selected) {
+    if (!selected) return true;
+    const actual = String(value || "").trim();
+    return selected === "__vazio__" ? !actual : actual === selected;
   }
   function escapeHtml(s){return String(s ?? "").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
   function safeDocumentUrl(value){
@@ -70,19 +84,24 @@
     const q=norm($("q").value), idade=$("idade").value, convenio=$("convenio").value, publico=$("publico").value;
     const filtered=records.filter(r=>{
       const all=norm([r.nome,r.codigo,r.descricao,r.idade,r.convenio,r.publico,r.tipo].join(" "));
-      return (!q||all.includes(q))&&(!idade||r.idade===idade)&&(!convenio||r.convenio===convenio)&&(!publico||r.publico===publico);
+      return (!q||all.includes(q))&&matchesFilter(r.idade,idade)&&matchesFilter(r.convenio,convenio)&&matchesFilter(r.publico,publico);
     });
-    $("count").textContent=`${filtered.length} roteiro(s) encontrado(s)`;
+    $("count").textContent=`${filtered.length} de ${records.length} roteiro(s)`;
     $("results").innerHTML=filtered.length?filtered.map(r=>{
       const url=safeDocumentUrl(r.url);
+      const tags = [
+        ["Idade",r.idade],["Convênio",r.convenio],["Público",r.publico],["Código",r.codigo]
+      ].map(([label,value]) => `<span class="chip">${label}: ${escapeHtml(String(value || "").trim() || "Não informado")}</span>`).join("");
+      const pendente = !String(r.idade||"").trim() || !String(r.convenio||"").trim() || !String(r.publico||"").trim();
       return `
       <article class="item">
         <div class="itemhead"><h4>${escapeHtml(r.nome)}</h4><span class="tag">${escapeHtml(r.tipo||"Documento")}</span></div>
         ${r.descricao?`<p class="desc">${escapeHtml(r.descricao)}</p>`:""}
-        <div class="meta">${[r.idade,r.convenio,r.publico,r.codigo].filter(Boolean).map(x=>`<span class="chip">${escapeHtml(x)}</span>`).join("")}</div>
+        <div class="meta">${tags}</div>
+        ${pendente?'<p class="desc">Classificação incompleta: preencha idade, convênio e público na planilha para facilitar a consulta.</p>':""}
         ${url?`<a class="open" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">Abrir documento ↗</a>`:'<span class="desc">Link do documento indisponível</span>'}
       </article>`;
-    }).join(""):`<div class="empty">Nenhum roteiro encontrado. Tente remover algum filtro.</div>`;
+    }).join(""):`<div class="empty">Nenhum roteiro encontrado com esses filtros. Tente alterar ou limpar os filtros.</div>`;
   }
   async function load(){
     if(API_URL.startsWith("COLE_AQUI")){$("status").textContent="Aguardando configuração";$("results").innerHTML='<div class="empty">O portal está publicado, mas falta conectar a URL do aplicativo da web do Google.</div>';$("count").textContent="Base ainda não conectada";return;}
